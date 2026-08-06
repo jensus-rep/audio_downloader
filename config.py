@@ -54,19 +54,30 @@ class Config:
     failed_downloads_file: Path
 
     @classmethod
-    def from_env(cls, headed_override: bool = False) -> "Config":
+    def from_env(
+        cls,
+        headed_override: bool = False,
+        overrides: dict[str, str] | None = None,
+    ) -> "Config":
         project_dir = Path(__file__).resolve().parent
         load_dotenv(project_dir / ".env")
         load_dotenv()
 
-        username = os.getenv("UNI_USERNAME", "").strip()
-        password = os.getenv("UNI_PASSWORD", "")
-        if not username:
-            raise ConfigError("UNI_USERNAME fehlt in der .env-Datei.")
-        if not password:
-            raise ConfigError("UNI_PASSWORD fehlt in der .env-Datei.")
+        values = overrides or {}
 
-        download_dir_value = os.getenv("DOWNLOAD_DIR", "downloads")
+        def value(name: str, default: str = "") -> str:
+            if name in values:
+                return values[name]
+            return os.getenv(name, default)
+
+        username = value("UNI_USERNAME").strip()
+        password = value("UNI_PASSWORD")
+        if not username:
+            raise ConfigError("Benutzername fehlt.")
+        if not password:
+            raise ConfigError("Passwort fehlt.")
+
+        download_dir_value = value("DOWNLOAD_DIR", "downloads")
         download_dir = Path(download_dir_value)
         if not download_dir.is_absolute():
             download_dir = project_dir / download_dir
@@ -76,7 +87,7 @@ class Config:
         if not failed_file.is_absolute():
             failed_file = project_dir / failed_file
 
-        login_url = os.getenv("LOGIN_URL", "").strip() or None
+        login_url = value("LOGIN_URL").strip() or None
         logged_in_selector = os.getenv("LOGGED_IN_SELECTOR", "").strip() or None
         success_pattern = os.getenv("LOGIN_SUCCESS_URL_PATTERN", "").strip() or None
 

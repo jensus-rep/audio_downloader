@@ -18,6 +18,7 @@ class RunOptions:
     url: str
     course_wide: bool = False
     headed: bool = False
+    config_overrides: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -30,7 +31,10 @@ class RunResult:
 
 def run_download_job(options: RunOptions, log: LogFn = print) -> RunResult:
     try:
-        config = Config.from_env(headed_override=options.headed)
+        config = Config.from_env(
+            headed_override=options.headed,
+            overrides=options.config_overrides,
+        )
     except ConfigError as exc:
         return RunResult(summary=None, config_error=str(exc))
 

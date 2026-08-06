@@ -93,6 +93,14 @@ Oder direkt:
 python gui.py
 ```
 
+Unter Windows kann die Anwendung nach der Installation auch per Doppelklick
+auf `Audio-Downloader starten.bat` geöffnet werden.
+
+In der Oberfläche werden Kurs-URL, Zugangsdaten und Download-Ordner direkt
+eingegeben. Die Zugangsdaten werden dabei nur für den aktuellen Lauf verwendet
+und nicht von der Anwendung gespeichert. Eine vorhandene lokale `.env` dient
+weiterhin als optionale Vorbelegung.
+
 Das Tool:
 
 1. öffnet zunächst die Zielseite,

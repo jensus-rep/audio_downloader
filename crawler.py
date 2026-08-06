@@ -87,7 +87,7 @@ class AudioCrawler:
             elif not self._is_logged_in(self.page):
                 raise LoginError(
                     "Auf der konfigurierten Login-Seite wurde kein Login-Formular "
-                    "gefunden. Bitte die Selektoren in .env pruefen."
+                    "gefunden. Bitte die Login-Einstellungen prüfen."
                 )
             self._goto(self.page, target_url)
 
@@ -144,7 +144,7 @@ class AudioCrawler:
         if username is None or password is None or button is None:
             raise LoginError(
                 "Login-Felder oder Login-Button wurden nicht gefunden. "
-                "Bitte die Selektoren in .env pruefen."
+                "Bitte die Login-Einstellungen prüfen."
             )
 
         try:
@@ -184,7 +184,7 @@ class AudioCrawler:
             )
         except PlaywrightTimeoutError as exc:
             raise LoginError(
-                "Zeitueberschreitung beim Login. Bitte URL und Selektoren pruefen."
+                "Zeitüberschreitung beim Login. Bitte URL und Einstellungen prüfen."
             ) from exc
         except Exception as exc:
             raise LoginError(f"Login-Formular konnte nicht bedient werden: {exc}") from exc
@@ -192,7 +192,7 @@ class AudioCrawler:
         if self._login_form_visible(page):
             raise LoginError(
                 "Das Login-Formular ist weiterhin sichtbar. Zugangsdaten oder "
-                "Selektoren pruefen."
+                "Einstellungen prüfen."
             )
         if (
             self.config.login_success_url_pattern

@@ -5,7 +5,10 @@ import threading
 import tkinter as tk
 from pathlib import Path
 from queue import Empty, Queue
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
+from urllib.parse import urlparse
+
+from dotenv import dotenv_values
 
 from runner import RunOptions, run_download_job
 
@@ -19,15 +22,22 @@ class AudioDownloaderApp:
 
         self.queue: Queue[tuple[str, object]] = Queue()
         self.running = False
+        saved = dotenv_values(Path(__file__).resolve().parent / ".env")
 
-        self.url_var = tk.StringVar(
-            value="https://dbuappliedsciences.mrooms.net/course/view.php?id=301"
-        )
+        self.url_var = tk.StringVar()
+        self.username_var = tk.StringVar(value=saved.get("UNI_USERNAME") or "")
+        self.password_var = tk.StringVar(value=saved.get("UNI_PASSWORD") or "")
+        self.login_url_var = tk.StringVar(value=saved.get("LOGIN_URL") or "")
         self.course_wide_var = tk.BooleanVar(value=True)
         self.headed_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Bereit")
         self.summary_var = tk.StringVar(value="Noch kein Lauf gestartet")
-        self.download_dir_var = tk.StringVar(value="")
+        self.download_dir_var = tk.StringVar(
+            value=str(
+                Path(__file__).resolve().parent
+                / (saved.get("DOWNLOAD_DIR") or "downloads")
+            )
+        )
 
         self._build_ui()
         self.root.after(100, self._poll_queue)
@@ -107,6 +117,22 @@ class AudioDownloaderApp:
         ).pack(anchor=tk.W, pady=(14, 6))
         ttk.Entry(left, textvariable=self.url_var).pack(fill=tk.X)
 
+        ttk.Label(left, text="Anmeldung", style="PanelTitle.TLabel").pack(
+            anchor=tk.W, pady=(18, 6)
+        )
+        ttk.Label(left, text="Benutzername", style="PanelText.TLabel").pack(
+            anchor=tk.W
+        )
+        ttk.Entry(left, textvariable=self.username_var).pack(fill=tk.X, pady=(4, 8))
+        ttk.Label(left, text="Passwort", style="PanelText.TLabel").pack(anchor=tk.W)
+        ttk.Entry(left, textvariable=self.password_var, show="•").pack(
+            fill=tk.X, pady=(4, 8)
+        )
+        ttk.Label(
+            left, text="Login-URL (optional)", style="PanelText.TLabel"
+        ).pack(anchor=tk.W)
+        ttk.Entry(left, textvariable=self.login_url_var).pack(fill=tk.X, pady=(4, 0))
+
         ttk.Checkbutton(
             left, text="Kursweit durchsuchen", variable=self.course_wide_var
         ).pack(anchor=tk.W, pady=(16, 0))
@@ -114,11 +140,23 @@ class AudioDownloaderApp:
             left, text="Browser sichtbar starten", variable=self.headed_var
         ).pack(anchor=tk.W, pady=(6, 0))
 
+        ttk.Label(left, text="Download-Ordner", style="PanelText.TLabel").pack(
+            anchor=tk.W, pady=(14, 6)
+        )
+        folder_row = ttk.Frame(left, style="Panel.TFrame")
+        folder_row.pack(fill=tk.X)
+        ttk.Entry(folder_row, textvariable=self.download_dir_var).pack(
+            side=tk.LEFT, fill=tk.X, expand=True
+        )
+        ttk.Button(folder_row, text="Auswählen …", command=self.choose_download_dir).pack(
+            side=tk.LEFT, padx=(8, 0)
+        )
+
         buttons = ttk.Frame(left, style="Panel.TFrame")
         buttons.pack(fill=tk.X, pady=(20, 10))
 
         self.start_button = ttk.Button(
-            buttons, text="Start", command=self.start_download
+            buttons, text="Download starten", command=self.start_download
         )
         self.start_button.pack(side=tk.LEFT)
         ttk.Button(
@@ -138,17 +176,6 @@ class AudioDownloaderApp:
         ttk.Label(
             left,
             textvariable=self.summary_var,
-            style="PanelText.TLabel",
-            justify=tk.LEFT,
-            wraplength=320,
-        ).pack(anchor=tk.W)
-
-        ttk.Label(left, text="Download-Ziel", style="PanelTitle.TLabel").pack(
-            anchor=tk.W, pady=(18, 6)
-        )
-        ttk.Label(
-            left,
-            textvariable=self.download_dir_var,
             style="PanelText.TLabel",
             justify=tk.LEFT,
             wraplength=320,
@@ -178,8 +205,16 @@ class AudioDownloaderApp:
             return
 
         url = self.url_var.get().strip()
-        if not url:
-            messagebox.showerror("Fehler", "Bitte eine URL angeben.")
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            messagebox.showerror(
+                "Ungültige URL", "Bitte eine vollständige http(s)-URL angeben."
+            )
+            return
+        if not self.username_var.get().strip() or not self.password_var.get():
+            messagebox.showerror(
+                "Anmeldung fehlt", "Bitte Benutzername und Passwort eingeben."
+            )
             return
 
         self.running = True
@@ -192,6 +227,12 @@ class AudioDownloaderApp:
             url=url,
             course_wide=self.course_wide_var.get(),
             headed=self.headed_var.get(),
+            config_overrides={
+                "UNI_USERNAME": self.username_var.get().strip(),
+                "UNI_PASSWORD": self.password_var.get(),
+                "LOGIN_URL": self.login_url_var.get().strip(),
+                "DOWNLOAD_DIR": self.download_dir_var.get().strip(),
+            },
         )
 
         def worker() -> None:
@@ -269,6 +310,14 @@ class AudioDownloaderApp:
             os.startfile(path)
         else:
             messagebox.showerror("Fehler", f"Ordner nicht gefunden: {path}")
+
+    def choose_download_dir(self) -> None:
+        selected = filedialog.askdirectory(
+            title="Download-Ordner auswählen",
+            initialdir=self.download_dir_var.get() or str(Path.home()),
+        )
+        if selected:
+            self.download_dir_var.set(selected)
 
     def run(self) -> None:
         self.root.mainloop()
