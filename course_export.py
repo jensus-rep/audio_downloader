@@ -550,7 +550,9 @@ class CourseExporter:
                 folder.mkdir(parents=True, exist_ok=True)
                 stem = f"vimeo_{vid}_{slug(title, 50)}"
                 tracks = request.get("text_tracks") or []
-                german = [t for t in tracks if (t.get("lang") or "").startswith("de")] or tracks
+                # Only German captions: auto captions in another language for German speech are unusable,
+                # the audio track is the better source then.
+                german = [t for t in tracks if (t.get("lang") or "").startswith("de")]
                 headers = {"Referer": "https://player.vimeo.com/"}
                 if german:
                     url = urljoin("https://player.vimeo.com/", german[0]["url"])
