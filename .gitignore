@@ -8,3 +8,4 @@ downloads/
 failed_downloads.txt
 *.part
 playwright-report/
+exports/

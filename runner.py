@@ -6,6 +6,7 @@ from typing import Callable
 from playwright.sync_api import sync_playwright
 
 from config import Config, ConfigError
+from course_export import CourseExporter, ExportSummary
 from crawler import AudioCrawler, LoginError
 from downloader import AudioDownloader, DownloadSummary
 
@@ -19,11 +20,15 @@ class RunOptions:
     course_wide: bool = False
     headed: bool = False
     config_overrides: dict[str, str] | None = None
+    # "audio" downloads audio files; "export" records the whole course.
+    mode: str = "audio"
+    manual_login: bool = False
+    with_media: bool = False
 
 
 @dataclass(frozen=True)
 class RunResult:
-    summary: DownloadSummary | None
+    summary: DownloadSummary | ExportSummary | None
     config_error: str | None = None
     login_error: str | None = None
     unexpected_error: str | None = None
@@ -34,16 +39,27 @@ def run_download_job(options: RunOptions, log: LogFn = print) -> RunResult:
         config = Config.from_env(
             headed_override=options.headed,
             overrides=options.config_overrides,
+            manual_login=options.manual_login,
         )
     except ConfigError as exc:
         return RunResult(summary=None, config_error=str(exc))
 
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=config.headless)
+            browser = playwright.chromium.launch(
+                headless=config.headless, channel=config.browser_channel
+            )
             context = browser.new_context(accept_downloads=True)
 
             try:
+                if options.mode == "export":
+                    exporter = CourseExporter(
+                        context=context, config=config, log=log, with_media=options.with_media
+                    )
+                    summary = exporter.export_course(options.url)
+                    summary.print(log=log)
+                    return RunResult(summary=summary)
+
                 crawler = AudioCrawler(context=context, config=config, log=log)
                 if options.course_wide:
                     audio_urls = crawler.collect_course_audio_urls(options.url)

@@ -29,6 +29,21 @@ def parse_args() -> argparse.Namespace:
         help="Alle Moodle-Abschnitte des Kurses nach Audio-Dateien durchsuchen",
     )
     parser.add_argument(
+        "--export",
+        action="store_true",
+        help="Ganzen Kurs erfassen: Inventar, Texte, Dateien und Medienverweise",
+    )
+    parser.add_argument(
+        "--manual-login",
+        action="store_true",
+        help="Im sichtbaren Browserfenster selbst anmelden; keine Zugangsdaten nötig",
+    )
+    parser.add_argument(
+        "--with-media",
+        action="store_true",
+        help="Beim Erfassen auch Audio- und Videodateien aus dem Kurs herunterladen",
+    )
+    parser.add_argument(
         "--gui",
         action="store_true",
         help="Kleines Desktop-Interface starten",
@@ -51,7 +66,14 @@ def main() -> int:
         return 2
 
     result = run_download_job(
-        RunOptions(url=args.url, course_wide=args.course_wide, headed=args.headed),
+        RunOptions(
+            url=args.url,
+            course_wide=args.course_wide,
+            headed=args.headed,
+            mode="export" if args.export else "audio",
+            manual_login=args.manual_login,
+            with_media=args.with_media,
+        ),
         log=print,
     )
 

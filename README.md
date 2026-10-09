@@ -4,6 +4,11 @@ Dieses Python-Tool öffnet eine Kurs- oder Podcast-Seite mit Playwright,
 meldet sich mit lokal hinterlegten Uni-Zugangsdaten an und lädt verlinkte
 MP3-, WAV-, M4A- und OGG-Dateien in den Ordner `downloads`.
 
+Zusätzlich kann es einen Moodle-Kurs **vollständig erfassen**: Es legt ein
+Inventar aller Aktivitäten an und speichert Texte, Dateien und Verweise auf
+Medien, damit beim Lernen keine Inhalte übersehen werden (siehe
+[Kurs vollständig erfassen](#kurs-vollständig-erfassen)).
+
 Das Tool umgeht keine Zugriffsbeschränkungen. Es darf ausschließlich für
 Inhalte verwendet werden, auf die der verwendete Account regulär zugreifen
 darf. Captchas, Mehrfaktor-Anmeldung und andere Schutzmechanismen werden nicht
@@ -115,6 +120,51 @@ Das Tool:
 Einzelne Fehler stoppen den Gesamtlauf nicht. Fehlgeschlagene URLs werden in
 `failed_downloads.txt` geschrieben.
 
+## Kurs vollständig erfassen
+
+```powershell
+python main.py --export --manual-login "https://moodle.example.com/course/view.php?id=301"
+```
+
+Mit `--manual-login` öffnet sich ein Browserfenster; du meldest dich dort
+selbst an, und das Tool arbeitet danach mit dieser Sitzung weiter.
+Zugangsdaten werden dafür weder benötigt noch gespeichert. Ohne den Schalter
+gilt die Anmeldung über `.env` wie beim Audio-Download. In der Oberfläche
+heißt der Modus „Kurs erfassen“.
+
+Das Tool geht die Kursseite und alle Abschnitte durch und behandelt jede
+Aktivität nach ihrem Typ:
+
+| Typ | Was erfasst wird |
+| --- | --- |
+| Textfeld (`label`), Abschnittsbeschreibung | Text direkt von der Kursseite |
+| Seite, H5P, Glossar, Wiki | Text der Seite als Markdown, eingebettete Medien als Verweis |
+| Buch | alle Kapitel über die Druckansicht |
+| Datei, Verzeichnis | Dateien herunterladen; Text aus PDF, PowerPoint und Word ziehen |
+| Link | Zieladresse |
+| Test, Abgabe, Forum, Lektion, SCORM, Umfrage u. a. | **nur gelistet, nie geöffnet** |
+
+Tests und andere Aktivitäten, die beim Öffnen einen Versuch starten oder etwas
+speichern könnten, werden bewusst nicht aufgerufen. Das schützt zum Beispiel
+einen Abschlusstest, der nur einmal geöffnet werden darf. Das Tool sendet nur
+GET-Anfragen und folgt keinen Links aus dem Kurs heraus.
+
+Ergebnis in `exports/kurs-<id>/`:
+
+- `inventar.md`: Übersicht aller Aktivitäten nach Abschnitt, LV-Nummern mit
+  Lücken, nicht erfasste Aktivitäten und gefundene Medien
+- `inventar.json`: dieselben Daten maschinenlesbar
+- `texte/`: ein Markdown-Text je Aktivität, `00_abschnitte.md` mit den
+  Abschnittsbeschreibungen, `texte/dateien/` mit dem Text der Dateien
+- `dateien/`: heruntergeladene Dateien
+- `medien/`: Audio und Video, nur mit `--with-media`
+
+Tests laufen gegen einen nachgebauten Kurs auf localhost:
+
+```powershell
+.\.venv\Scripts\python -m unittest discover -s tests
+```
+
 ## Konfiguration
 
 | Variable | Standard | Bedeutung |
@@ -125,6 +175,10 @@ Einzelne Fehler stoppen den Gesamtlauf nicht. Fehlgeschlagene URLs werden in
 | `DOWNLOAD_TIMEOUT_MS` | `120000` | Download-Timeout in Millisekunden |
 | `DOWNLOAD_DIR` | `downloads` | Zielordner |
 | `FAILED_DOWNLOADS_FILE` | `failed_downloads.txt` | Fehlerprotokoll |
+| `EXPORT_DIR` | `exports` | Zielordner für „Kurs erfassen“ |
+| `REQUEST_DELAY_MS` | `300` | Pause zwischen zwei Seitenaufrufen |
+| `MANUAL_LOGIN_TIMEOUT_MS` | `300000` | Wartezeit für die Anmeldung im Browserfenster |
+| `BROWSER_CHANNEL` | leer | `chrome` nutzt ein installiertes Chrome statt Playwright-Chromium |
 
 ## Grenzen
 

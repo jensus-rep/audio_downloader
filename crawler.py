@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Iterable
 from typing import Callable
 from urllib.parse import parse_qs, urldefrag, urljoin, urlparse
@@ -73,10 +74,19 @@ class AudioCrawler:
 
         return sorted(audio_urls)
 
+    def open_authenticated(self, target_url: str) -> Page:
+        """Open target_url with a logged-in session and return the crawler page."""
+        self._open_authenticated_target(target_url)
+        self._wait_for_dynamic_content()
+        return self.page
+
     def _open_authenticated_target(self, target_url: str) -> None:
         self._goto(self.page, target_url)
 
-        if self._login_form_visible(self.page):
+        if self._login_form_visible(self.page) and self.config.manual_login:
+            self._wait_for_manual_login(self.page)
+            self._goto(self.page, target_url)
+        elif self._login_form_visible(self.page):
             self._login(self.page)
             self._goto(self.page, target_url)
         elif not self._is_logged_in(self.page) and self.config.login_url:
@@ -204,6 +214,19 @@ class AudioCrawler:
         if self.config.logged_in_selector and not self._is_logged_in(page):
             raise LoginError("LOGGED_IN_SELECTOR wurde nach dem Login nicht gefunden.")
         self.log("Login erfolgreich")
+
+    def _wait_for_manual_login(self, page: Page) -> None:
+        self.log("Bitte im geöffneten Browserfenster anmelden; das Tool wartet")
+        deadline = time.monotonic() + self.config.manual_login_timeout_ms / 1000
+        while time.monotonic() < deadline:
+            page.wait_for_timeout(1_000)
+            try:
+                if "/login/" not in page.url and not self._login_form_visible(page):
+                    self.log("Anmeldung erkannt")
+                    return
+            except Exception:
+                continue
+        raise LoginError("Keine Anmeldung im Browserfenster innerhalb der Wartezeit.")
 
     def _login_form_visible(self, page: Page) -> bool:
         username = self._first_existing_locator(

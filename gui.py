@@ -30,6 +30,9 @@ class AudioDownloaderApp:
         self.login_url_var = tk.StringVar(value=saved.get("LOGIN_URL") or "")
         self.course_wide_var = tk.BooleanVar(value=True)
         self.headed_var = tk.BooleanVar(value=False)
+        self.mode_var = tk.StringVar(value="export")
+        self.manual_login_var = tk.BooleanVar(value=True)
+        self.with_media_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Bereit")
         self.summary_var = tk.StringVar(value="Noch kein Lauf gestartet")
         self.download_dir_var = tk.StringVar(
@@ -82,6 +85,12 @@ class AudioDownloaderApp:
             foreground="#e5e7eb",
             font=("Segoe UI", 10),
         )
+        style.configure(
+            "TRadiobutton",
+            background="#111827",
+            foreground="#e5e7eb",
+            font=("Segoe UI", 10),
+        )
         style.configure("TButton", padding=8)
 
         outer = ttk.Frame(self.root, style="Root.TFrame", padding=18)
@@ -94,7 +103,7 @@ class AudioDownloaderApp:
         )
         ttk.Label(
             header,
-            text="Kursseiten durchsuchen, Audio-Dateien sammeln und Downloads direkt im selben Fenster steuern.",
+            text="Moodle-Kurse vollständig erfassen oder Audio-Dateien laden, mit Fortschritt im selben Fenster.",
             style="Subtitle.TLabel",
         ).pack(anchor=tk.W, pady=(4, 0))
 
@@ -117,9 +126,24 @@ class AudioDownloaderApp:
         ).pack(anchor=tk.W, pady=(14, 6))
         ttk.Entry(left, textvariable=self.url_var).pack(fill=tk.X)
 
+        ttk.Radiobutton(
+            left,
+            text="Kurs erfassen: Inventar, Texte, Dateien",
+            value="export",
+            variable=self.mode_var,
+        ).pack(anchor=tk.W, pady=(12, 0))
+        ttk.Radiobutton(
+            left, text="Nur Audio-Dateien herunterladen", value="audio", variable=self.mode_var
+        ).pack(anchor=tk.W, pady=(4, 0))
+
         ttk.Label(left, text="Anmeldung", style="PanelTitle.TLabel").pack(
             anchor=tk.W, pady=(18, 6)
         )
+        ttk.Checkbutton(
+            left,
+            text="Im Browserfenster selbst anmelden (kein Passwort nötig)",
+            variable=self.manual_login_var,
+        ).pack(anchor=tk.W, pady=(0, 8))
         ttk.Label(left, text="Benutzername", style="PanelText.TLabel").pack(
             anchor=tk.W
         )
@@ -139,8 +163,13 @@ class AudioDownloaderApp:
         ttk.Checkbutton(
             left, text="Browser sichtbar starten", variable=self.headed_var
         ).pack(anchor=tk.W, pady=(6, 0))
+        ttk.Checkbutton(
+            left,
+            text="Beim Erfassen auch Audio und Video laden",
+            variable=self.with_media_var,
+        ).pack(anchor=tk.W, pady=(6, 0))
 
-        ttk.Label(left, text="Download-Ordner", style="PanelText.TLabel").pack(
+        ttk.Label(left, text="Zielordner", style="PanelText.TLabel").pack(
             anchor=tk.W, pady=(14, 6)
         )
         folder_row = ttk.Frame(left, style="Panel.TFrame")
@@ -156,7 +185,7 @@ class AudioDownloaderApp:
         buttons.pack(fill=tk.X, pady=(20, 10))
 
         self.start_button = ttk.Button(
-            buttons, text="Download starten", command=self.start_download
+            buttons, text="Starten", command=self.start_download
         )
         self.start_button.pack(side=tk.LEFT)
         ttk.Button(
@@ -211,9 +240,13 @@ class AudioDownloaderApp:
                 "Ungültige URL", "Bitte eine vollständige http(s)-URL angeben."
             )
             return
-        if not self.username_var.get().strip() or not self.password_var.get():
+        manual_login = self.manual_login_var.get()
+        if not manual_login and (
+            not self.username_var.get().strip() or not self.password_var.get()
+        ):
             messagebox.showerror(
-                "Anmeldung fehlt", "Bitte Benutzername und Passwort eingeben."
+                "Anmeldung fehlt",
+                "Bitte Benutzername und Passwort eingeben oder die Anmeldung im Browserfenster wählen.",
             )
             return
 
@@ -227,11 +260,15 @@ class AudioDownloaderApp:
             url=url,
             course_wide=self.course_wide_var.get(),
             headed=self.headed_var.get(),
+            mode=self.mode_var.get(),
+            manual_login=manual_login,
+            with_media=self.with_media_var.get(),
             config_overrides={
                 "UNI_USERNAME": self.username_var.get().strip(),
                 "UNI_PASSWORD": self.password_var.get(),
                 "LOGIN_URL": self.login_url_var.get().strip(),
                 "DOWNLOAD_DIR": self.download_dir_var.get().strip(),
+                "EXPORT_DIR": self.download_dir_var.get().strip(),
             },
         )
 
@@ -292,6 +329,20 @@ class AudioDownloaderApp:
             return
 
         self.status_var.set("Abgeschlossen")
+        if hasattr(summary, "activities"):
+            lv = ", ".join(str(n) for n in summary.lv_numbers) or "keine"
+            self.summary_var.set(
+                f"Aktivitäten: {summary.activities}\n"
+                f"Mit Text: {summary.with_text}\n"
+                f"Dateien: {summary.files}\n"
+                f"Nur gelistet: {summary.listed_only}\n"
+                f"Fehler: {summary.failed}\n"
+                f"LV-Nummern: {lv}\n"
+                f"Bericht: {summary.export_dir / 'inventar.md'}"
+            )
+            if summary.failed == 0:
+                messagebox.showinfo("Fertig", "Der Kurs ist erfasst. Details in inventar.md.")
+            return
         self.download_dir_var.set(str(summary.download_dir))
         self.summary_var.set(
             f"Gefunden: {summary.found}\n"

@@ -52,12 +52,18 @@ class Config:
     download_timeout_ms: int
     download_dir: Path
     failed_downloads_file: Path
+    manual_login: bool = False
+    manual_login_timeout_ms: int = 300_000
+    browser_channel: str | None = None
+    export_dir: Path = Path("exports")
+    request_delay_ms: int = 300
 
     @classmethod
     def from_env(
         cls,
         headed_override: bool = False,
         overrides: dict[str, str] | None = None,
+        manual_login: bool = False,
     ) -> "Config":
         project_dir = Path(__file__).resolve().parent
         load_dotenv(project_dir / ".env")
@@ -72,10 +78,16 @@ class Config:
 
         username = value("UNI_USERNAME").strip()
         password = value("UNI_PASSWORD")
-        if not username:
+        # With manual login the user signs in in the visible browser window;
+        # no credentials are needed or stored.
+        if not manual_login and not username:
             raise ConfigError("Benutzername fehlt.")
-        if not password:
+        if not manual_login and not password:
             raise ConfigError("Passwort fehlt.")
+
+        export_dir = Path(value("EXPORT_DIR", "exports"))
+        if not export_dir.is_absolute():
+            export_dir = project_dir / export_dir
 
         download_dir_value = value("DOWNLOAD_DIR", "downloads")
         download_dir = Path(download_dir_value)
@@ -106,10 +118,17 @@ class Config:
             ),
             logged_in_selector=logged_in_selector,
             login_success_url_pattern=success_pattern,
-            headless=False if headed_override else _env_bool("HEADLESS", True),
+            headless=False
+            if headed_override or manual_login
+            else _env_bool("HEADLESS", True),
             login_timeout_ms=_env_int("LOGIN_TIMEOUT_MS", 30_000),
             page_timeout_ms=_env_int("PAGE_TIMEOUT_MS", 30_000),
             download_timeout_ms=_env_int("DOWNLOAD_TIMEOUT_MS", 120_000),
             download_dir=download_dir.resolve(),
             failed_downloads_file=failed_file.resolve(),
+            manual_login=manual_login,
+            manual_login_timeout_ms=_env_int("MANUAL_LOGIN_TIMEOUT_MS", 300_000),
+            browser_channel=value("BROWSER_CHANNEL").strip() or None,
+            export_dir=export_dir.resolve(),
+            request_delay_ms=_env_int("REQUEST_DELAY_MS", 300),
         )
