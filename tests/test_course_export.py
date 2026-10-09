@@ -176,6 +176,8 @@ class CourseExportTest(unittest.TestCase):
                         url=f"{base}/course/view.php?id=7",
                         mode="export",
                         config_overrides={
+                            # Never touch the real login page from a local .env.
+                            "LOGIN_URL": "",
                             "UNI_USERNAME": "test",
                             "UNI_PASSWORD": "test",
                             "EXPORT_DIR": tmp,

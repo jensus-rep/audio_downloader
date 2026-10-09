@@ -159,6 +159,25 @@ Ergebnis in `exports/kurs-<id>/`:
 - `dateien/`: heruntergeladene Dateien
 - `medien/`: Audio und Video, nur mit `--with-media`
 
+Mit `--with-media` holt das Tool außerdem für eingebettete **Vimeo-Videos** in der angemeldeten Sitzung die
+deutschen Untertitel (`medien/vimeo_<id>_<titel>.vtt`) oder, wenn es keine gibt, die Tonspur (`.m4a`). Die Übersicht
+steht in `medien/vimeo.json`. Eingebettete Videos sind meist nur aus dem Kurs heraus abspielbar; deshalb geschieht das
+auf der Kursseite selbst. Externe YouTube-Videos werden nur gelistet.
+
+## Transkribieren
+
+```powershell
+.\.venv\Scripts\python transcribe.py exports\kurs-<id>\medien --out <zielordner> --resource <azure-ressource> --resource-group <gruppe>
+```
+
+Audio und Video gehen an Azure AI Speech (Fast Transcription, de-DE); der Schlüssel wird zur Laufzeit über die Azure
+CLI gelesen (`az login`) oder aus `AZURE_SPEECH_KEY`/`AZURE_SPEECH_ENDPOINT` übernommen und nie gespeichert. Untertitel
+(`.vtt`) werden ohne Azure umgewandelt. Je Datei entsteht ein Markdown-Transkript mit Zeitmarken `[mm:ss]`, dazu
+`transcripts.json`. Bereits transkribierte Dateien werden übersprungen.
+
+Wie daraus Lernkarten und Testaufgaben im Second Brain werden, beschreibt `tools/lernpaket/README.md` im Repo
+`second-brain`.
+
 Tests laufen gegen einen nachgebauten Kurs auf localhost:
 
 ```powershell

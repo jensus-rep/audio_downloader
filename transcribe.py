@@ -6,6 +6,8 @@ Aufruf:
 Der Schlüssel wird zur Laufzeit über die Azure CLI gelesen (`az login` vorausgesetzt) oder aus
 AZURE_SPEECH_KEY und AZURE_SPEECH_ENDPOINT übernommen. Er wird weder gespeichert noch ausgegeben.
 
+Untertiteldateien (.vtt, z. B. von Vimeo) werden ohne Azure in dasselbe Format umgewandelt.
+
 Je Datei entstehen <name>.json (Rohantwort) und <name>.md. Zusätzlich fasst transcripts.json alle
 Transkripte als Liste {number, title, text} zusammen, im selben Format wie frühere Importe.
 Bereits transkribierte Dateien werden übersprungen.
@@ -17,6 +19,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -26,6 +29,7 @@ import requests
 
 API_VERSION = "2024-11-15"
 AUDIO_SUFFIXES = {".mp3", ".wav", ".m4a", ".ogg", ".mp4", ".webm"}
+CAPTION_SUFFIXES = {".vtt"}
 SEGMENT_SECONDS = 25
 
 
@@ -98,15 +102,37 @@ def segments(result: dict) -> list[tuple[int, str]]:
     return grouped
 
 
+def parse_vtt(path: Path) -> dict:
+    """Read a WebVTT file into the same shape as an Azure result (phrases with offsets)."""
+    def ms(value: str) -> int:
+        parts = value.replace(",", ".").split(":")
+        if len(parts) == 2:
+            parts = ["0", *parts]
+        h, m, sec = parts
+        return int((int(h) * 3600 + int(m) * 60 + float(sec)) * 1000)
+
+    phrases = []
+    for block in re.split(r"\n\s*\n", path.read_text(encoding="utf-8")):
+        match = re.search(r"(\d{1,2}:\d{2}(?::\d{2})?[.,]\d+)\s+-->\s+(\d{1,2}:\d{2}(?::\d{2})?[.,]\d+)[^\n]*\n(.+)", block, re.S)
+        if match:
+            start, end = ms(match.group(1)), ms(match.group(2))
+            text = " ".join(re.sub(r"<[^>]+>", "", match.group(3)).split())
+            if text:
+                phrases.append({"offsetMilliseconds": start, "durationMilliseconds": end - start, "text": text})
+    return {"phrases": phrases, "durationMilliseconds": phrases[-1]["offsetMilliseconds"] + phrases[-1]["durationMilliseconds"] if phrases else 0}
+
+
 def render(number: int, title: str, path: Path, result: dict) -> str:
     parts = segments(result)
     duration = int(result.get("durationMilliseconds", 0))
     characters = sum(len(text) for _, text in parts)
-    file_id = "az_" + hashlib.sha1(path.name.encode("utf-8")).hexdigest()[:12]
+    caption = path.suffix.lower() in CAPTION_SUFFIXES
+    file_id = ("vtt_" if caption else "az_") + hashlib.sha1(path.name.encode("utf-8")).hexdigest()[:12]
+    origin = " · Untertitel" if caption else " · Azure AI Speech"
     lines = [
         f"## {number:02d}. {title}",
         "",
-        f"`{path.name}` · `{file_id}` · {stamp(duration)} · {len(parts)} Segmente · {characters:,} Zeichen".replace(",", "."),
+        f"`{path.name}` · `{file_id}` · {stamp(duration)} · {len(parts)} Segmente · {characters:,} Zeichen".replace(",", ".") + origin,
         "",
     ]
     for offset, text in parts:
@@ -126,20 +152,35 @@ def main() -> int:
     parser.add_argument("--only", nargs="*", help="Nur Dateien, deren Name einen dieser Texte enthält")
     args = parser.parse_args()
 
-    files = sorted(p for p in args.audio_dir.iterdir() if p.suffix.lower() in AUDIO_SUFFIXES)
+    files = sorted(p for p in args.audio_dir.iterdir() if p.suffix.lower() in AUDIO_SUFFIXES | CAPTION_SUFFIXES)
     if args.only:
         files = [p for p in files if any(part.lower() in p.name.lower() for part in args.only)]
     if not files:
         print("Keine Audio-Dateien gefunden.")
         return 1
     args.out.mkdir(parents=True, exist_ok=True)
-    endpoint, key = azure_credentials(args.resource, args.resource_group)
+    needs_azure = any(p.suffix.lower() in AUDIO_SUFFIXES and not (args.out / f"{p.stem}.json").exists() for p in files)
+    endpoint, key = azure_credentials(args.resource, args.resource_group) if needs_azure else ("", "")
+
+    vimeo_titles = {}
+    if (args.audio_dir / "vimeo.json").exists():
+        vimeo_titles = {vid: v.get("titel") for vid, v in json.loads((args.audio_dir / "vimeo.json").read_text(encoding="utf-8")).items()}
+
+    def title_of(path: Path) -> str:
+        match = re.match(r"vimeo_(\d+)_", path.name)
+        if match and vimeo_titles.get(match.group(1)):
+            return vimeo_titles[match.group(1)]
+        # Course export names files "<activity id>_<original name>"
+        return re.sub(r"^\d+_", "", path.stem).replace("_", " ").strip()
 
     collected, failures = [], []
     for number, path in enumerate(files, start=1):
-        title = path.stem.replace("_", " ").strip()
+        title = title_of(path)
         raw_path = args.out / f"{path.stem}.json"
-        if raw_path.exists():
+        if path.suffix.lower() in CAPTION_SUFFIXES:
+            result = parse_vtt(path)
+            print(f"[{number}/{len(files)}] Untertitel: {path.name}")
+        elif raw_path.exists():
             result = json.loads(raw_path.read_text(encoding="utf-8"))
             print(f"[{number}/{len(files)}] vorhanden: {path.name}")
         else:

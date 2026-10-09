@@ -7,6 +7,7 @@ bewusst nicht geöffnet wird (z. B. Tests, die nur einmal aufrufbar sind).
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 import unicodedata
@@ -241,6 +242,7 @@ class CourseExporter:
         # The audio crawler inspects every network response; the export does not
         # need that, and on media-heavy courses it exhausted memory.
         self.page.remove_listener("response", self.crawler._capture_audio_response)
+        self.vimeo: dict[str, dict] = {}
 
     # -- entry point -------------------------------------------------------
 
@@ -275,6 +277,16 @@ class CourseExporter:
                 known = raw_activities.get(key)
                 if not known or len(item["inline_text"]) > len(known["inline_text"]):
                     raw_activities[key] = item
+            if self.with_media:
+                self._capture_vimeo(structure["activities"])
+
+        if self.vimeo:
+            (root / "medien" / "vimeo.json").write_text(
+                json.dumps(self.vimeo, ensure_ascii=False, indent=1), encoding="utf-8"
+            )
+            self.log(f"Vimeo: {sum(1 for v in self.vimeo.values() if v['art'] == 'untertitel')} Untertitel, "
+                     f"{sum(1 for v in self.vimeo.values() if v['art'] == 'tonspur')} Tonspuren, "
+                     f"{sum(1 for v in self.vimeo.values() if v['art'] == 'fehler')} Fehler")
 
         activities = [
             self._activity_from(position, item)
@@ -498,6 +510,74 @@ class CourseExporter:
             src = item.get("src") or ""
             if urlparse(src).netloc == origin and Path(urlparse(src).path).suffix.lower() in MEDIA_SUFFIXES:
                 self._download_file(activity, src)
+
+    def _capture_vimeo(self, items: list[dict]) -> None:
+        """Save captions (preferred) or the audio track of embedded Vimeo videos on the current page.
+
+        Works only inside the logged-in course page: embed-restricted videos refuse requests
+        from anywhere else. Captions come from the player's text tracks; without captions the
+        DASH audio segments are joined into one .m4a file for transcription.
+        """
+        titles = {}
+        for item in items:
+            name = item.get("name") or ""
+            if not name or name == "(ohne Titel)":
+                name = (item.get("inline_text") or "").strip().split("\n")[0][:80]
+            for media in item.get("media") or []:
+                match = re.search(r"player\.vimeo\.com/video/(\d+)", media.get("src") or "")
+                if match:
+                    titles.setdefault(match.group(1), name)
+        folder = self.root / "medien"
+        for frame in self.page.frames:
+            match = re.search(r"player\.vimeo\.com/video/(\d+)", frame.url)
+            if not match or match.group(1) in self.vimeo:
+                continue
+            vid = match.group(1)
+            title = titles.get(vid) or vid
+            entry = {"titel": title, "art": "fehler", "datei": None}
+            self.vimeo[vid] = entry
+            try:
+                frame.wait_for_load_state("domcontentloaded", timeout=15_000)
+                raw = frame.evaluate("() => window.playerConfig ? JSON.stringify(window.playerConfig) : null")
+                if not raw:
+                    raw = frame.evaluate(
+                        "async id => { const r = await fetch(`/video/${id}/config`); return r.ok ? await r.text() : null; }",
+                        vid,
+                    )
+                cfg = json.loads(raw or "{}")
+                request = cfg.get("request", {})
+                entry["dauer_s"] = cfg.get("video", {}).get("duration")
+                folder.mkdir(parents=True, exist_ok=True)
+                stem = f"vimeo_{vid}_{slug(title, 50)}"
+                tracks = request.get("text_tracks") or []
+                german = [t for t in tracks if (t.get("lang") or "").startswith("de")] or tracks
+                headers = {"Referer": "https://player.vimeo.com/"}
+                if german:
+                    url = urljoin("https://player.vimeo.com/", german[0]["url"])
+                    body = self.context.request.get(url, headers=headers, timeout=self.config.download_timeout_ms).body()
+                    (folder / f"{stem}.vtt").write_bytes(body)
+                    entry.update(art="untertitel", datei=f"medien/{stem}.vtt", sprache=german[0].get("lang"))
+                else:
+                    dash = request.get("files", {}).get("dash") or {}
+                    cdn = (dash.get("cdns") or {}).get(dash.get("default_cdn")) or next(iter((dash.get("cdns") or {}).values()), {})
+                    playlist_url = cdn.get("url") or cdn.get("avc_url")
+                    if not playlist_url:
+                        raise RuntimeError("weder Untertitel noch Audiospur angeboten")
+                    playlist = json.loads(self.context.request.get(playlist_url, headers=headers).body())
+                    audio = sorted(playlist.get("audio") or [], key=lambda a: a.get("bitrate", 0))
+                    if not audio:
+                        raise RuntimeError("keine Audiospur in der Playlist")
+                    track = audio[-1]
+                    base = urljoin(urljoin(playlist_url, playlist.get("base_url", "")), track.get("base_url", ""))
+                    data = bytearray(base64.b64decode(track["init_segment"]))
+                    for segment in track["segments"]:
+                        data += self.context.request.get(urljoin(base, segment["url"]), headers=headers).body()
+                    AudioDownloader._write_atomic(folder / f"{stem}.m4a", bytes(data))
+                    entry.update(art="tonspur", datei=f"medien/{stem}.m4a")
+                self.log(f"Vimeo {entry['art']}: {title}")
+            except Exception as exc:
+                entry["fehler"] = str(exc)[:300]
+                self.log(f"Vimeo-Fehler bei „{title}“: {entry['fehler']}")
 
     def _frame_texts(self) -> list[str]:
         texts = []
